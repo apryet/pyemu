@@ -1465,16 +1465,19 @@ class OrdinaryKrige(object):
                 "ok.interp_data is None, must call calc_factors_grid() first"
             )
         if self.spatial_reference is None:
-            raise Exception(
-                "ok.spatial_reference is None, must call calc_factors_grid() first"
-            )
+            #raise Exception(
+            #    "ok.spatial_reference is None, must call calc_factors_grid() first"
+            #)
+            # spatial_reference is not provided for unstructured grid
+            # set nrow, ncol to zero 
+            nrow, ncol = 0, 0
+        else : 
+            nrow, ncol = self.spatial_reference.ncol, self.spatial_reference.nrow
         with open(filename, "w") as f:
             f.write(points_file + "\n")
             f.write(zone_file + "\n")
             f.write(
-                "{0} {1}\n".format(
-                    self.spatial_reference.ncol, self.spatial_reference.nrow
-                )
+                "{0} {1}\n".format(nrow, ncol)
             )
             f.write("{0}\n".format(self.point_data.shape[0]))
             [f.write("{0}\n".format(name)) for name in self.point_data.name]
@@ -2253,7 +2256,6 @@ def fac2real(
             + ",".join(list(diff))
         )
 
-    arr = np.zeros((nrow, ncol), dtype=np.float) + fill_value
     pp_dict = {int(name): val for name, val in zip(pp_data.index, pp_data.parval1)}
     try:
         pp_dict_log = {
@@ -2261,8 +2263,9 @@ def fac2real(
         }
     except:
         pp_dict_log = {}
-    # for i in range(nrow):
-    #    for j in range(ncol):
+
+    inodes = []
+    values = []
     while True:
         line = f_fac.readline()
         if len(line) == 0:
@@ -2279,22 +2282,26 @@ def fac2real(
             fac_sum = sum([pp_dict_log[pp] * fac_data[pp] for pp in fac_data])
         if itrans != 0:
             fac_sum = 10 ** fac_sum
-        # col = ((inode - 1) // nrow) + 1
-        # row = inode - ((col - 1) * nrow)
-        row = ((inode - 1) // ncol) + 1
-        col = inode - ((row - 1) * ncol)
-        # arr[row-1,col-1] = np.sum(np.array(fac_prods))
-        arr[row - 1, col - 1] = fac_sum
-    arr[arr < lower_lim] = lower_lim
-    arr[arr > upper_lim] = upper_lim
+        inodes.append(inode)
+        values.append(fac_sum)
 
-    # print(out_file,arr.min(),pp_data.parval1.min(),lower_lim)
-
-    if out_file is not None:
-        np.savetxt(out_file, arr, fmt="%15.6E", delimiter="")
-        return out_file
-    return arr
-
+    # for structured arrays returns nrow*ncol array
+    if nrow != 0 and ncol !=0 : 
+        arr = np.zeros((nrow, ncol), dtype=np.float) + fill_value
+        for inode,value in zip(inodes,values):
+            row = ((inode - 1) // ncol) + 1
+            col = inode - ((row - 1) * ncol)
+            arr[row - 1, col - 1] = fac_sum
+        arr[arr < lower_lim] = lower_lim
+        arr[arr > upper_lim] = upper_lim
+        if out_file is not None:
+            np.savetxt(out_file, arr, fmt="%15.6E", delimiter="")
+            return out_file
+    # for unstructured arrays returns 2D array
+    else :
+        # first col inodes, second col values
+        arr = np.array([inodes,values],dtype=object).T
+        return arr
 
 def _parse_factor_line(line):
     """ function to parse a factor file line.  Used by fac2real()
